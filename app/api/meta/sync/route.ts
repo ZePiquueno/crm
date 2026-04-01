@@ -30,13 +30,14 @@ async function syncMetaAds() {
     const formattedAdAccountId = adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`;
 
     // Busca os últimos 30 dias na Graph API
-    const insightsUrl = `https://graph.facebook.com/v19.0/${formattedAdAccountId}/insights?date_preset=last_30d&time_increment=1&fields=campaign_id,campaign_name,impressions,clicks,spend,actions&access_token=${metaToken}`;
+    const insightsUrl = `https://graph.facebook.com/v19.0/${formattedAdAccountId}/insights?date_preset=last_30d&time_increment=1&fields=campaign_id,campaign_name,impressions,clicks,spend,actions&access_token=${encodeURIComponent(metaToken)}`;
     
     const response = await fetch(insightsUrl);
     
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.error?.message || "Erro de conexão com o Meta Ads.");
+      const diagnostic = `Token: ${metaToken.substring(0, 5)}...${metaToken.substring(metaToken.length - 5)} (Length: ${metaToken.length})`;
+      throw new Error(`${errorData.error?.message || "Erro de conexão com o Meta Ads."} | Diagnóstico: ${diagnostic}`);
     }
 
     const data = await response.json();
