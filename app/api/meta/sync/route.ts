@@ -37,13 +37,13 @@ async function syncMetaAds() {
     let adsUpdated = 0;
 
     if (data.data && data.data.length > 0) {
-      for (const row of data.data) {
-          const dateStart = row.date_start; // Data do insight
+        for (const row of data.data) {
+          const dateStart = row.date_start;
           let leadsCount = 0;
 
-          if (row.actions) {
+          if (row.actions && Array.isArray(row.actions)) {
             const leadAction = row.actions.find((a: any) => 
-               a.action_type === 'lead' || a.action_type === 'onsite_conversion.lead_grouped'
+               a.action_type === 'lead' || a.action_type === 'onsite_conversion.lead_grouped' || a.action_type === 'lead_grouped'
             );
             if (leadAction) {
               leadsCount = parseInt(leadAction.value) || 0;
@@ -62,8 +62,12 @@ async function syncMetaAds() {
                leads_gerados: leadsCount
             }, { onConflict: 'data, campanha_id' });
           
-          if (!dbError) adsUpdated++;
-      }
+          if (dbError) {
+            console.error("Erro ao salvar no Supabase:", dbError.message);
+          } else {
+            adsUpdated++;
+          }
+        }
     }
 
     return NextResponse.json({

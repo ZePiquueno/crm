@@ -34,12 +34,15 @@ export default function DashboardPage() {
         const estagiosOrdem: Record<string, number> = {
           "lead_novo": 1,
           "contato_feito": 2,
-          "em_followup": 3,
+          "follow_up_1": 3,
+          "follow_up_2": 3,
           "qualificado": 4,
           "reuniao_agendada": 5,
           "proposta_enviada": 6,
           "fechado_ganho": 7,
-          "desqualificado": 0
+          "desqualificado": 0,
+          "fechado_perdido": 0,
+          "encerrado": 0
         };
 
         const countAtLeast = (level: number) => leads.filter(l => estagiosOrdem[l.estagio] >= level).length;
