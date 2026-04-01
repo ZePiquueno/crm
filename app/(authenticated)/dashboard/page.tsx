@@ -1,11 +1,13 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DollarSign, Users, CalendarSync, Handshake, Target, TrendingUp, MonitorSmartphone } from "lucide-react";
+import { DollarSign, Users, CalendarSync, Handshake, Target, TrendingUp, MonitorSmartphone, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { FunnelChart, FunnelStageData } from "./components/FunnelChart";
 import { EvolutionChart, EvolutionData } from "./components/EvolutionChart";
 import { DateFilter } from "@/components/DateFilter";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { Lead } from "@/lib/types";
 
@@ -22,117 +24,143 @@ export default function DashboardPage() {
     isLoading: true 
   });
 
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      const { data: leads, error } = await supabase.from('leads').select('*');
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const fetchDashboardData = useCallback(async () => {
+    setMetrics(prev => ({ ...prev, isLoading: true }));
+    const { data: leads, error } = await supabase.from('leads').select('*');
+    
+    if (leads && !error) {
+      const { data: adsData } = await supabase.from('investimentos_ads').select('data, valor_gasto, leads_gerados');
+      const investido = adsData ? adsData.reduce((acc, ad) => acc + (Number(ad.valor_gasto) || 0), 0) : 0;
+      const leadsMeta = adsData ? adsData.reduce((acc, ad) => acc + (Number(ad.leads_gerados) || 0), 0) : 0;
+
+      const estagiosOrdem: Record<string, number> = {
+        "lead_novo": 1,
+        "contato_feito": 2,
+        "follow_up_1": 3,
+        "follow_up_2": 3,
+        "qualificado": 4,
+        "reuniao_agendada": 5,
+        "proposta_enviada": 6,
+        "fechado_ganho": 7,
+        "desqualificado": 0,
+        "fechado_perdido": 0,
+        "encerrado": 0
+      };
+
+      const countAtLeast = (level: number) => leads.filter(l => estagiosOrdem[l.estagio] >= level).length;
       
-      if (leads && !error) {
-        const { data: adsData } = await supabase.from('investimentos_ads').select('data, valor_gasto, leads_gerados');
-        const investido = adsData ? adsData.reduce((acc, ad) => acc + (Number(ad.valor_gasto) || 0), 0) : 0;
-        const leadsMeta = adsData ? adsData.reduce((acc, ad) => acc + (Number(ad.leads_gerados) || 0), 0) : 0;
+      const countL = leads.length;
+      const countC = countAtLeast(2);
+      const countF = countAtLeast(3);
+      const countQ = countAtLeast(4);
+      const countR = countAtLeast(5);
+      const countP = countAtLeast(6);
+      const countV = countAtLeast(7);
 
-        const estagiosOrdem: Record<string, number> = {
-          "lead_novo": 1,
-          "contato_feito": 2,
-          "follow_up_1": 3,
-          "follow_up_2": 3,
-          "qualificado": 4,
-          "reuniao_agendada": 5,
-          "proposta_enviada": 6,
-          "fechado_ganho": 7,
-          "desqualificado": 0,
-          "fechado_perdido": 0,
-          "encerrado": 0
-        };
+      const calcConv = (current: number, prev: number) => prev > 0 ? `${Math.round((current / prev) * 100)}%` : "0%";
 
-        const countAtLeast = (level: number) => leads.filter(l => estagiosOrdem[l.estagio] >= level).length;
-        
-        const countL = leads.length;
-        const countC = countAtLeast(2);
-        const countF = countAtLeast(3);
-        const countQ = countAtLeast(4);
-        const countR = countAtLeast(5);
-        const countP = countAtLeast(6);
-        const countV = countAtLeast(7);
+      const funnelData: FunnelStageData[] = [
+        { name: "Leads", count: countL, conversion: "100%" },
+        { name: "Contatos", count: countC, conversion: calcConv(countC, countL) },
+        { name: "Follow Ups", count: countF, conversion: calcConv(countF, countC) },
+        { name: "Qualificados", count: countQ, conversion: calcConv(countQ, countF) },
+        { name: "Reuniões", count: countR, conversion: calcConv(countR, countQ) },
+        { name: "Propostas", count: countP, conversion: calcConv(countP, countR) },
+        { name: "Vendas", count: countV, conversion: calcConv(countV, countP) },
+      ];
 
-        const calcConv = (current: number, prev: number) => prev > 0 ? `${Math.round((current / prev) * 100)}%` : "0%";
+      const dateMap: Record<string, { leads: number, investido: number }> = {};
+      leads.forEach(l => {
+        if (!l.created_at) return;
+        const d = l.created_at.split('T')[0];
+        if (!dateMap[d]) dateMap[d] = { leads: 0, investido: 0 };
+        dateMap[d].leads += 1;
+      });
 
-        const funnelData: FunnelStageData[] = [
-          { name: "Leads", count: countL, conversion: "100%" },
-          { name: "Contatos", count: countC, conversion: calcConv(countC, countL) },
-          { name: "Follow Ups", count: countF, conversion: calcConv(countF, countC) },
-          { name: "Qualificados", count: countQ, conversion: calcConv(countQ, countF) },
-          { name: "Reuniões", count: countR, conversion: calcConv(countR, countQ) },
-          { name: "Propostas", count: countP, conversion: calcConv(countP, countR) },
-          { name: "Vendas", count: countV, conversion: calcConv(countV, countP) },
-        ];
-
-        // Lógica para EvolutionData (Gráfico de Linha cumulativo)
-        const dateMap: Record<string, { leads: number, investido: number }> = {};
-        
-        // Popular leads no dateMap
-        leads.forEach(l => {
-          if (!l.created_at) return;
-          const d = l.created_at.split('T')[0];
+      if (adsData) {
+        adsData.forEach(ad => {
+          if (!ad.data) return;
+          const d = ad.data;
           if (!dateMap[d]) dateMap[d] = { leads: 0, investido: 0 };
-          dateMap[d].leads += 1;
+          dateMap[d].investido += Number(ad.valor_gasto) || 0;
         });
-
-        // Popular ads no dateMap
-        if (adsData) {
-          adsData.forEach(ad => {
-            if (!ad.data) return;
-            const d = ad.data;
-            if (!dateMap[d]) dateMap[d] = { leads: 0, investido: 0 };
-            dateMap[d].investido += Number(ad.valor_gasto) || 0;
-          });
-        }
-
-        // Ordenar e acumular
-        const sortedDates = Object.keys(dateMap).sort();
-        let accLeads = 0;
-        let accInvestido = 0;
-        
-        const evolutionData: EvolutionData[] = sortedDates.map(dateStr => {
-           accLeads += dateMap[dateStr].leads;
-           accInvestido += dateMap[dateStr].investido;
-           const [y, m, d] = dateStr.split('-');
-           const months = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-           return {
-             date: `${d} ${months[parseInt(m)-1]}`,
-             leads: accLeads,
-             investido: parseFloat(accInvestido.toFixed(2))
-           };
-        });
-
-        // Garantir que haja base para plotar caso esteja vazio
-        if (evolutionData.length === 0) {
-           const today = new Date();
-           evolutionData.push({ date: `${today.getDate()} Mar`, leads: 0, investido: 0 });
-        }
-
-        const leadsFechados = leads.filter(l => l.estagio === "fechado_ganho");
-        const reunioes = countR;
-        const faturamento = leadsFechados.reduce((acc, lead) => acc + (lead.valor_venda || 0), 0);
-        
-        setMetrics({ 
-          fechadas: leadsFechados.length, 
-          faturamento, 
-          investido,
-          leadsTotais: leads.length,
-          leadsMeta,
-          reunioes,
-          funnelData,
-          evolutionData,
-          isLoading: false 
-        });
-      } else {
-        setMetrics({ fechadas: 0, faturamento: 0, investido: 0, leadsTotais: 0, leadsMeta: 0, reunioes: 0, funnelData: [], evolutionData: [], isLoading: false });
       }
-    };
 
-    fetchDashboardData();
+      const sortedDates = Object.keys(dateMap).sort();
+      let accLeads = 0;
+      let accInvestido = 0;
+      
+      const evolutionData: EvolutionData[] = sortedDates.map(dateStr => {
+         accLeads += dateMap[dateStr].leads;
+         accInvestido += dateMap[dateStr].investido;
+         const [y, m, d] = dateStr.split('-');
+         const months = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+         return {
+           date: `${d} ${months[parseInt(m)-1]}`,
+           leads: accLeads,
+           investido: parseFloat(accInvestido.toFixed(2))
+         };
+      });
+
+      if (evolutionData.length === 0) {
+         const today = new Date();
+         evolutionData.push({ date: `${today.getDate()} Mar`, leads: 0, investido: 0 });
+      }
+
+      const leadsFechados = leads.filter(l => l.estagio === "fechado_ganho");
+      const faturamento = leadsFechados.reduce((acc, lead) => acc + (lead.valor_venda || 0), 0);
+      
+      setMetrics({ 
+        fechadas: leadsFechados.length, 
+        faturamento, 
+        investido,
+        leadsTotais: leads.length,
+        leadsMeta,
+        reunioes: countR,
+        funnelData,
+        evolutionData,
+        isLoading: false 
+      });
+    } else {
+      setMetrics(prev => ({ ...prev, isLoading: false }));
+    }
   }, []);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    const toastId = toast.loading("Sincronizando dados com o Meta Ads...");
+    
+    try {
+      const resSync = await fetch('/api/meta/sync');
+      const dataSync = await resSync.json();
+      
+      const resLeads = await fetch('/api/meta/leads');
+      const dataLeads = await resLeads.json();
+
+      if (dataSync.status === 'success' || dataLeads.status === 'success') {
+        toast.success("Sincronização concluída!", {
+          id: toastId,
+          description: `${dataSync.ads_updated || 0} métricas e ${dataLeads.stats?.new_leads_added || 0} novos leads puxados.`
+        });
+        fetchDashboardData(); 
+      } else {
+        throw new Error("Erro na resposta da API");
+      }
+    } catch (error) {
+      toast.error("Falha na sincronização", {
+        id: toastId,
+        description: "Verifique seu token da Meta nas configurações."
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const ROI = metrics.investido > 0 ? ((metrics.faturamento / metrics.investido) * 100).toFixed(0) : 0;
   const CPL = metrics.leadsMeta > 0 ? (metrics.investido / metrics.leadsMeta) : 0;
@@ -148,11 +176,23 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-bold tracking-tight font-heading text-foreground">Dashboard</h1>
           <p className="text-muted-foreground mt-1 text-sm max-w-lg leading-relaxed">Visão geral de performance e métricas em tempo real.</p>
         </div>
-        <DateFilter />
+        <div className="flex items-center gap-3">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="h-9 gap-2 border-primary/20 hover:bg-primary/5 text-primary"
+            onClick={handleSync}
+            disabled={isSyncing}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+            {isSyncing ? "Sincronizando..." : "Sincronizar Meta"}
+          </Button>
+          <DateFilter />
+        </div>
       </div>
 
       <div className="grid gap-5 md:grid-cols-3 lg:grid-cols-3">
-        {/* Card 1 - Investido */}
+        {/* Cards de Métricas */}
         <Card className="bg-card border border-border/60 overflow-hidden group hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 rounded-xl">
           <CardHeader className="flex flex-row items-center justify-between pb-2 px-6 pt-5 gap-2">
             <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Investido (Mês)</CardTitle>
@@ -166,7 +206,6 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Card 2 - Leads */}
         <Card className="bg-card border border-border/60 overflow-hidden group hover:shadow-lg hover:shadow-blue-500/5 transition-all duration-300 rounded-xl">
           <CardHeader className="flex flex-row items-center justify-between pb-2 px-6 pt-5 gap-2">
             <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Leads Totais</CardTitle>
@@ -180,7 +219,6 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Card 3 - CPL */}
         <Card className="bg-card border border-border/60 overflow-hidden group hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300 rounded-xl">
           <CardHeader className="flex flex-row items-center justify-between pb-2 px-6 pt-5 gap-2">
             <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Custo por Lead</CardTitle>
@@ -194,7 +232,6 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Card 4 - Vendas */}
         <Card className="bg-card border border-border/60 overflow-hidden group hover:shadow-lg hover:shadow-violet-500/5 transition-all duration-300 rounded-xl">
           <CardHeader className="flex flex-row items-center justify-between pb-2 px-6 pt-5 gap-2">
             <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Vendas Fechadas</CardTitle>
@@ -208,7 +245,6 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Card 5 - Receita */}
         <Card className="bg-card border border-emerald-200/80 overflow-hidden group hover:shadow-lg hover:shadow-emerald-500/8 transition-all duration-300 rounded-xl">
           <CardHeader className="flex flex-row items-center justify-between pb-2 px-6 pt-5 gap-2">
             <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Receita Bruta</CardTitle>
@@ -222,7 +258,6 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Card 6 - ROI */}
         <Card className="bg-card border border-primary/20 overflow-hidden group hover:shadow-lg hover:shadow-primary/8 transition-all duration-300 rounded-xl">
           <CardHeader className="flex flex-row items-center justify-between pb-2 px-6 pt-5 gap-2">
             <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">ROI Líquido</CardTitle>
@@ -237,7 +272,6 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Seção do Funil Visual Customizado */}
       <Card className="bg-card border border-border/60 rounded-xl overflow-hidden">
         <CardHeader className="px-6 pt-5 pb-2">
           <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -256,7 +290,6 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* Gráfico Temporal */}
       <Card className="bg-card border border-border/60 rounded-xl">
         <CardHeader className="px-6 pt-5 pb-0">
           <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
