@@ -6,13 +6,19 @@ async function syncMetaAds() {
     // Busca credenciais do Supabase
     const { data: configs } = await supabase.from('configuracoes').select('*').in('chave', ['meta_token', 'ad_account']);
     
-    let metaToken = process.env.META_ACCESS_TOKEN || '';
-    let adAccountId = process.env.META_AD_ACCOUNT_ID || '';
+    let metaToken = (process.env.META_ACCESS_TOKEN || '').trim();
+    let adAccountId = (process.env.META_AD_ACCOUNT_ID || '').trim();
+    let source = 'Vercel ENV';
 
     configs?.forEach((c) => {
-      if (c.chave === 'meta_token' && c.valor) metaToken = c.valor;
-      if (c.chave === 'ad_account' && c.valor) adAccountId = c.valor;
+      if (c.chave === 'meta_token' && c.valor) {
+        metaToken = c.valor.trim();
+        source = 'Supabase DB';
+      }
+      if (c.chave === 'ad_account' && c.valor) adAccountId = c.valor.trim();
     });
+
+    console.log(`[Sync] Usando credenciais de: ${source}`);
 
     if (!metaToken || !adAccountId) {
       return NextResponse.json({ 
