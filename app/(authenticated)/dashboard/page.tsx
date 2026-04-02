@@ -12,6 +12,9 @@ import { supabase } from "@/lib/supabase";
 import { Lead } from "@/lib/types";
 
 export default function DashboardPage() {
+  const [startDate, setStartDate] = useState(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+
   const [metrics, setMetrics] = useState({ 
     fechadas: 0, 
     faturamento: 0, 
@@ -28,10 +31,24 @@ export default function DashboardPage() {
 
   const fetchDashboardData = useCallback(async () => {
     setMetrics(prev => ({ ...prev, isLoading: true }));
-    const { data: leads, error } = await supabase.from('leads').select('*');
+    
+    // Filtro de leads pela data selecionada
+    const startDateTime = `${startDate}T00:00:00.000Z`;
+    const endDateTime = `${endDate}T23:59:59.999Z`;
+
+    const { data: leads, error } = await supabase
+      .from('leads')
+      .select('*')
+      .gte('created_at', startDateTime)
+      .lte('created_at', endDateTime);
     
     if (leads && !error) {
-      const { data: adsData } = await supabase.from('investimentos_ads').select('data, valor_gasto, leads_gerados');
+      const { data: adsData } = await supabase
+        .from('investimentos_ads')
+        .select('data, valor_gasto, leads_gerados')
+        .gte('data', startDate)
+        .lte('data', endDate);
+        
       const investido = adsData ? adsData.reduce((acc, ad) => acc + (Number(ad.valor_gasto) || 0), 0) : 0;
       const leadsMeta = adsData ? adsData.reduce((acc, ad) => acc + (Number(ad.leads_gerados) || 0), 0) : 0;
 
@@ -126,7 +143,7 @@ export default function DashboardPage() {
     } else {
       setMetrics(prev => ({ ...prev, isLoading: false }));
     }
-  }, []);
+  }, [startDate, endDate]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -143,19 +160,20 @@ export default function DashboardPage() {
       const resLeads = await fetch('/api/meta/leads');
       const dataLeads = await resLeads.json();
 
-      if (dataSync.status === 'success' || dataLeads.status === 'success') {
-        toast.success("Sincronização concluída!", {
-          id: toastId,
-          description: `${dataSync.ads_updated || 0} métricas e ${dataLeads.stats?.new_leads_added || 0} novos leads puxados.`
-        });
-        fetchDashboardData(); 
-      } else {
-        throw new Error("Erro na resposta da API");
+      if (dataSync.status === 'error' || dataLeads.status === 'error') {
+        const errorMsg = dataSync.message || dataLeads.message || "Erro desconhecido";
+        throw new Error(errorMsg);
       }
-    } catch (error) {
+
+      toast.success("Sincronização concluída!", {
+        id: toastId,
+        description: `${dataSync.ads_updated || 0} métricas diárias e ${dataLeads.stats?.new_leads_added || 0} novos contatos puxados.`
+      });
+      fetchDashboardData(); 
+    } catch (error: any) {
       toast.error("Falha na sincronização", {
         id: toastId,
-        description: "Verifique seu token da Meta nas configurações."
+        description: error.message || "Verifique seu token da Meta nas configurações."
       });
     } finally {
       setIsSyncing(false);
@@ -187,7 +205,12 @@ export default function DashboardPage() {
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
             {isSyncing ? "Sincronizando..." : "Sincronizar Meta"}
           </Button>
-          <DateFilter />
+          <DateFilter 
+            startDate={startDate} 
+            endDate={endDate} 
+            onChangeStart={setStartDate} 
+            onChangeEnd={setEndDate} 
+          />
         </div>
       </div>
 

@@ -49,12 +49,14 @@ async function syncMetaAds() {
           let leadsCount = 0;
 
           if (row.actions && Array.isArray(row.actions)) {
-            const leadAction = row.actions.find((a: any) => 
-               a.action_type === 'lead' || a.action_type === 'onsite_conversion.lead_grouped' || a.action_type === 'lead_grouped'
+            const leadActions = row.actions.filter((a: any) => 
+               a.action_type === 'lead' || 
+               a.action_type === 'onsite_conversion.lead_grouped' || 
+               a.action_type === 'lead_grouped' ||
+               a.action_type?.includes('lead')
             );
-            if (leadAction) {
-              leadsCount = parseInt(leadAction.value) || 0;
-            }
+            
+            leadsCount = leadActions.reduce((acc: number, action: any) => acc + (parseInt(action.value) || 0), 0);
           }
 
           const { error: dbError } = await supabase
