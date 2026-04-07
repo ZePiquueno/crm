@@ -7,9 +7,7 @@ export async function GET() {
 
   const scopes = [
     'public_profile',
-    'email',
     'ads_read',
-    'ads_management',
   ].join(',');
 
   const fbAuthUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code`;
